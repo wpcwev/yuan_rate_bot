@@ -96,6 +96,9 @@ class RateService:
         rounding = ROUND_CEILING if self.settings.round_up else ROUND_HALF_UP
         return (value / step).to_integral_value(rounding=rounding) * step
 
+    def round_public_rate(self, value: Decimal) -> Decimal:
+        return self._round_rate(value)
+
 
 def parse_decimal(raw: str) -> Decimal:
     return Decimal(raw.strip().replace(",", "."))
