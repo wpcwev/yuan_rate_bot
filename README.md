@@ -3,6 +3,7 @@
 Telegram-бот для расчета курса RUB/CNY.
 
 Сейчас бот только считает курс. Публикацию в Telegram-чаты и на сайт можно добавить следующим этапом.
+Также бот умеет собирать готовый текст поста в стиле обменника.
 
 ## Формула
 
@@ -33,10 +34,22 @@ public_rate = round_up(cny_cost + PUBLIC_MARKUP_RUB)
 Берет курсы из API и считает курс.
 
 ```text
+/post
+```
+
+Берет курсы из API и собирает готовый пост.
+
+```text
 /calc 74.83 6.7754
 ```
 
 Считает вручную по переданным значениям.
+
+```text
+/post_calc 74.83 6.7754
+```
+
+Собирает готовый пост по переданным значениям.
 
 ```text
 /settings
@@ -91,9 +104,14 @@ ADMIN_IDS=123456789,987654321
 
 ```text
 RAPIRA_MARKUP_PERCENT=2.9
-PUBLIC_MARKUP_RUB=0.00
-ROUND_TO=0.01
+PUBLIC_MARKUP_RUB=0.20
+ROUND_TO=0.05
 ROUND_UP=true
+POST_TIERS=1000:0.15;3000:0.10;10000:0.05;30000:0.00
+CHECK_RATE_RUB=12.00
+USDT_CNY_REGULAR=6.61
+USDT_CNY_BIG=6.68
+CONTACT_USERNAME=@exchange_kir
 ```
 
 ## Запуск на Ubuntu через systemd

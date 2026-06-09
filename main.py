@@ -8,6 +8,7 @@ from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
 from config import Settings, load_settings
+from post_template import build_exchange_post
 from rate_service import RateService, RateSnapshot, fmt_money, fmt_rate, parse_decimal
 
 
@@ -53,7 +54,9 @@ async def cmd_help(message: Message):
         "Rapira USDT/RUB + твоя надбавка -> делим на Coinbase USDT/CNY.\n\n"
         "Команды:\n"
         "/rate - взять курсы из API и посчитать\n"
+        "/post - собрать готовый пост по API\n"
         "/calc <rapira> <cny> - посчитать вручную\n"
+        "/post_calc <rapira> <cny> - собрать пост вручную\n"
         "/settings - показать настройки формулы\n"
         "/formula - показать формулу\n"
         "/myid - показать твой Telegram ID\n\n"
@@ -75,6 +78,22 @@ async def cmd_rate(message: Message):
         return
 
     await waiting.edit_text(build_rate_text(snapshot))
+
+
+@router.message(Command("post"))
+async def cmd_post(message: Message):
+    if not await guard(message):
+        return
+
+    waiting = await message.reply("Собираю пост: беру Rapira и Coinbase...")
+    try:
+        snapshot = await rate_service.calculate_auto()
+    except Exception:
+        logging.exception("Failed to build post")
+        await waiting.edit_text("Не смог получить курсы из API. Проверь интернет/доступность Rapira и Coinbase.")
+        return
+
+    await waiting.edit_text(build_exchange_post(snapshot, settings))
 
 
 @router.message(Command("calc"))
@@ -102,6 +121,37 @@ async def cmd_calc(message: Message, command: CommandObject):
     await message.reply(build_rate_text(snapshot))
 
 
+@router.message(Command("post_calc"))
+async def cmd_post_calc(message: Message, command: CommandObject):
+    if not await guard(message):
+        return
+
+    if not command.args:
+        await message.reply(
+            "Использование: /post_calc <rapira_usdt_rub> <coinbase_usdt_cny>\n"
+            "Пример: /post_calc 74.83 6.7754"
+        )
+        return
+
+    parts = command.args.split()
+    if len(parts) != 2:
+        await message.reply(
+            "Нужно два числа: Rapira USDT/RUB и Coinbase USDT/CNY.\n"
+            "Пример: /post_calc 74.83 6.7754"
+        )
+        return
+
+    try:
+        rapira_raw = parse_decimal(parts[0])
+        coinbase_cny = parse_decimal(parts[1])
+        snapshot = rate_service.calculate(rapira_raw=rapira_raw, coinbase_cny=coinbase_cny)
+    except (InvalidOperation, ValueError) as exc:
+        await message.reply(f"Не смог собрать пост: {exc}")
+        return
+
+    await message.reply(build_exchange_post(snapshot, settings))
+
+
 @router.message(Command("settings"))
 async def cmd_settings(message: Message):
     if not await guard(message):
@@ -116,6 +166,8 @@ async def cmd_settings(message: Message):
         f"Coinbase base/quote: {settings.coinbase_base_currency}/{settings.coinbase_quote_currency}\n"
         f"Надбавка к Rapira: +{fmt_rate(settings.rapira_markup_percent, '0.01')}%\n"
         f"Доп. наценка: +{fmt_money(settings.public_markup_rub)} RUB/CNY\n"
+        f"Ступени поста: {settings.post_tiers}\n"
+        f"Курс чеков: {fmt_money(settings.check_rate_rub)} RUB/CNY\n"
         f"Округление: {settings.round_to}, вверх: {settings.round_up}\n"
         f"Ограничение по ADMIN_IDS: {admin_mode}"
     )

@@ -36,6 +36,27 @@ def _admin_ids(raw: str | None) -> set[int]:
     return {int(x) for x in re.split(r"[,\s]+", raw.strip()) if x.isdigit()}
 
 
+def _optional_decimal_env(name: str) -> Decimal | None:
+    raw = os.getenv(name, "").strip().replace(",", ".")
+    if not raw:
+        return None
+    try:
+        return Decimal(raw)
+    except InvalidOperation as exc:
+        raise ValueError(f"{name} must be a decimal number, got {raw!r}") from exc
+
+
+def _tiers_env(name: str, default: str) -> list[tuple[int, Decimal]]:
+    raw = os.getenv(name, default).strip()
+    tiers: list[tuple[int, Decimal]] = []
+    for part in re.split(r"[;\n]+", raw):
+        if not part.strip():
+            continue
+        min_amount, markup = part.split(":", 1)
+        tiers.append((int(min_amount.strip()), Decimal(markup.strip().replace(",", "."))))
+    return sorted(tiers)
+
+
 @dataclass(frozen=True)
 class Settings:
     telegram_bot_token: str
@@ -54,6 +75,19 @@ class Settings:
     round_to: Decimal
     round_up: bool
     request_timeout_seconds: int
+
+    post_tiers: list[tuple[int, Decimal]]
+    check_rate_rub: Decimal
+    min_exchange_cny: int
+    trial_exchange_cny: int
+    usdt_buy_rate_rub: Decimal | None
+    usdt_sell_rate_rub: Decimal | None
+    usdt_cny_regular: Decimal | None
+    usdt_cny_big: Decimal | None
+    usdt_cny_big_from: int
+    contact_username: str
+    reviews_username: str
+    chat_username: str
 
 
 def load_settings() -> Settings:
@@ -76,4 +110,16 @@ def load_settings() -> Settings:
         round_to=_decimal_env("ROUND_TO", "0.01"),
         round_up=_bool_env("ROUND_UP", "true"),
         request_timeout_seconds=_int_env("REQUEST_TIMEOUT_SECONDS", "10"),
+        post_tiers=_tiers_env("POST_TIERS", "1000:0.15;3000:0.10;10000:0.05;30000:0.00"),
+        check_rate_rub=_decimal_env("CHECK_RATE_RUB", "12.00"),
+        min_exchange_cny=_int_env("MIN_EXCHANGE_CNY", "500"),
+        trial_exchange_cny=_int_env("TRIAL_EXCHANGE_CNY", "100"),
+        usdt_buy_rate_rub=_optional_decimal_env("USDT_BUY_RATE_RUB"),
+        usdt_sell_rate_rub=_optional_decimal_env("USDT_SELL_RATE_RUB"),
+        usdt_cny_regular=_optional_decimal_env("USDT_CNY_REGULAR"),
+        usdt_cny_big=_optional_decimal_env("USDT_CNY_BIG"),
+        usdt_cny_big_from=_int_env("USDT_CNY_BIG_FROM", "10000"),
+        contact_username=os.getenv("CONTACT_USERNAME", "@exchange_kir").strip(),
+        reviews_username=os.getenv("REVIEWS_USERNAME", "@otzivi_17teen").strip(),
+        chat_username=os.getenv("CHAT_USERNAME", "@chat_17teen").strip(),
     )
