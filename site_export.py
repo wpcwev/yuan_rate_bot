@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_CEILING, ROUND_HALF_UP
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -10,6 +10,12 @@ from rate_service import RateService, RateSnapshot, fmt_money, fmt_rate
 
 def _decimal_number(value: Decimal, places: str = "0.01") -> float:
     return float(value.quantize(Decimal(places), rounding=ROUND_HALF_UP))
+
+
+def _round_up_to_step(value: Decimal, step: Decimal) -> Decimal:
+    if step <= 0:
+        return value
+    return (value / step).to_integral_value(rounding=ROUND_CEILING) * step
 
 
 def _telegram_url(username: str) -> str:
@@ -28,21 +34,49 @@ def get_usdt_rates(snapshot: RateSnapshot, settings: Settings) -> tuple[Decimal,
     return buy_rate, sell_rate
 
 
-def build_site_rates(snapshot: RateSnapshot, settings: Settings, rate_service: RateService) -> dict:
-    cny_tiers = []
-    for min_amount, tier_markup in sorted(settings.post_tiers, reverse=True):
-        tier_rate = rate_service.round_public_rate(snapshot.public_rate + tier_markup)
-        cny_tiers.append({"from": min_amount, "rate": _decimal_number(tier_rate)})
+def build_cny_tiers(
+    snapshot: RateSnapshot, settings: Settings, rate_service: RateService
+) -> tuple[list[dict], Decimal]:
+    tier_rates: list[tuple[int, Decimal]] = []
+    best_tier_rate: Decimal | None = None
+    best_tier_min = -1
 
+    for min_amount, tier_markup in settings.post_tiers:
+        tier_rate = rate_service.round_public_rate(snapshot.public_rate + tier_markup)
+        if min_amount > best_tier_min:
+            best_tier_min = min_amount
+            best_tier_rate = tier_rate
+        if min_amount != settings.min_exchange_cny:
+            tier_rates.append((min_amount, tier_rate))
+
+    if best_tier_rate is None:
+        best_tier_rate = snapshot.public_rate
+
+    check_rate = _round_up_to_step(
+        best_tier_rate + settings.check_markup_rub,
+        settings.check_round_to,
+    )
+    tier_rates.append((settings.min_exchange_cny, check_rate))
+
+    cny_tiers = [
+        {"from": min_amount, "rate": _decimal_number(tier_rate)}
+        for min_amount, tier_rate in sorted(tier_rates, reverse=True)
+    ]
+    return cny_tiers, check_rate
+
+
+def build_site_rates(snapshot: RateSnapshot, settings: Settings, rate_service: RateService) -> dict:
+    cny_tiers, check_rate = build_cny_tiers(snapshot, settings, rate_service)
     usdt_buy, usdt_sell = get_usdt_rates(snapshot, settings)
-    usdt_cny_regular = settings.usdt_cny_regular or snapshot.coinbase_cny
-    usdt_cny_big = settings.usdt_cny_big or snapshot.coinbase_cny
+    usdt_cny_rate = snapshot.coinbase_cny + settings.usdt_cny_offset
+    if usdt_cny_rate <= 0:
+        raise ValueError("USDT/CNY site rate must be greater than zero.")
 
     return {
         "updatedAt": datetime.now(ZoneInfo("Europe/Moscow")).isoformat(timespec="seconds"),
         "cny": {
             "tiers": cny_tiers,
-            "checkRate": _decimal_number(settings.check_rate_rub),
+            "checkRate": _decimal_number(check_rate),
             "minAmount": settings.min_exchange_cny,
             "trialAmount": settings.trial_exchange_cny,
         },
@@ -50,9 +84,14 @@ def build_site_rates(snapshot: RateSnapshot, settings: Settings, rate_service: R
             "marketRub": _decimal_number(snapshot.rapira_raw),
             "buyRub": _decimal_number(usdt_buy),
             "sellRub": _decimal_number(usdt_sell),
-            "cnyRegular": _decimal_number(usdt_cny_regular),
-            "cnyBig": _decimal_number(usdt_cny_big),
+            "cnyMarket": _decimal_number(snapshot.coinbase_cny, "0.0001"),
+            "cnyRate": _decimal_number(usdt_cny_rate),
+            "cnyRegular": _decimal_number(usdt_cny_rate),
+            "cnyBig": _decimal_number(usdt_cny_rate),
             "cnyBigFrom": settings.usdt_cny_big_from,
+            "minBuyRub": _decimal_number(settings.min_rub_to_usdt_rub),
+            "minSellUsdt": _decimal_number(settings.min_usdt_to_rub),
+            "minCnyUsdt": _decimal_number(settings.min_usdt_to_cny),
         },
         "contacts": {
             "telegram": _telegram_url(settings.contact_username),
@@ -88,7 +127,8 @@ def build_site_preview(snapshot: RateSnapshot, settings: Settings, rate_service:
             f"USDT рынок Rapira: {fmt_money(snapshot.rapira_raw)} ₽",
             f"Купить USDT: {fmt_money(Decimal(str(payload['usdt']['buyRub'])))} ₽",
             f"Продать USDT: {fmt_money(Decimal(str(payload['usdt']['sellRub'])))} ₽",
-            f"USDT/CNY: {fmt_rate(Decimal(str(payload['usdt']['cnyRegular'])))}",
+            f"USDT/CNY Coinbase: {fmt_rate(snapshot.coinbase_cny)}",
+            f"USDT/CNY для сайта: {fmt_rate(Decimal(str(payload['usdt']['cnyRate'])))}",
             "",
             f"Файл сайта: {settings.site_rates_path}",
         ]

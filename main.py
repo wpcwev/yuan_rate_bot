@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from decimal import InvalidOperation
+from decimal import Decimal, InvalidOperation
 
 from aiogram import Bot, Dispatcher, Router
 from aiogram.client.default import DefaultBotProperties
@@ -33,6 +33,7 @@ async def guard(message: Message) -> bool:
 
 def build_rate_text(snapshot: RateSnapshot) -> str:
     usdt_buy, usdt_sell = get_usdt_rates(snapshot, settings)
+    usdt_cny_site = snapshot.coinbase_cny + settings.usdt_cny_offset
     return (
         "Расчет курса RUB/CNY\n\n"
         f"Rapira {snapshot.rapira_symbol} ({snapshot.rapira_field}): {fmt_money(snapshot.rapira_raw)}\n"
@@ -43,16 +44,17 @@ def build_rate_text(snapshot: RateSnapshot) -> str:
         f"Доп. маржа: +{fmt_money(settings.public_markup_rub)} RUB/CNY\n"
         f"Базовый курс CNY: {fmt_money(snapshot.public_rate)} RUB/CNY\n\n"
         f"Купить USDT: {fmt_money(usdt_buy)} RUB\n"
-        f"Продать USDT: {fmt_money(usdt_sell)} RUB"
+        f"Продать USDT: {fmt_money(usdt_sell)} RUB\n"
+        f"USDT/CNY для калькулятора: {fmt_money(usdt_cny_site)}"
     )
 
 
 def build_tiers_text(snapshot: RateSnapshot) -> str:
     lines = ["Курс юаня по суммам:", ""]
+    payload = build_site_rates(snapshot, settings, rate_service)
 
-    for min_amount, tier_markup in sorted(settings.post_tiers, reverse=True):
-        tier_rate = rate_service.round_public_rate(snapshot.public_rate + tier_markup)
-        lines.append(f"от {min_amount}¥ - {fmt_money(tier_rate)} ₽/¥")
+    for tier in payload["cny"]["tiers"]:
+        lines.append(f"от {tier['from']}¥ - {fmt_money(Decimal(str(tier['rate'])))} ₽/¥")
 
     usdt_buy, usdt_sell = get_usdt_rates(snapshot, settings)
     lines.extend(
@@ -63,7 +65,8 @@ def build_tiers_text(snapshot: RateSnapshot) -> str:
             "",
             f"Rapira USDT/RUB: {fmt_money(snapshot.rapira_raw)}",
             f"Расчетный USDT/RUB для CNY: {fmt_money(snapshot.rapira_adjusted)}",
-            f"USDT/CNY: {fmt_rate(snapshot.coinbase_cny)}",
+            f"USDT/CNY Coinbase: {fmt_rate(snapshot.coinbase_cny)}",
+            f"USDT/CNY для калькулятора: {fmt_money(Decimal(str(payload['usdt']['cnyRate'])))}",
             "",
             f"Купить USDT: {fmt_money(usdt_buy)} ₽",
             f"Продать USDT: {fmt_money(usdt_sell)} ₽",
@@ -236,8 +239,12 @@ async def cmd_settings(message: Message):
         f"Надбавка к Rapira для CNY: +{fmt_rate(settings.rapira_markup_percent, '0.01')}%\n"
         f"Доп. маржа CNY: +{fmt_money(settings.public_markup_rub)} RUB/CNY\n"
         f"Ступени: {settings.post_tiers}\n"
-        f"Курс чеков: {fmt_money(settings.check_rate_rub)} RUB/CNY\n"
+        f"Малая ступень CNY: лучший тариф +{fmt_money(settings.check_markup_rub)}, округление {settings.check_round_to}\n"
         f"USDT offsets: buy {fmt_money(settings.usdt_buy_offset_rub)}, sell {fmt_money(settings.usdt_sell_offset_rub)}\n"
+        f"USDT/CNY offset: {fmt_money(settings.usdt_cny_offset)}\n"
+        f"Минимумы: RUB->USDT {fmt_money(settings.min_rub_to_usdt_rub, '0.01')} RUB, "
+        f"USDT->RUB {fmt_money(settings.min_usdt_to_rub, '0.01')} USDT, "
+        f"USDT->CNY {fmt_money(settings.min_usdt_to_cny, '0.01')} USDT\n"
         f"Site rates path: {settings.site_rates_path}\n"
         f"Округление: {settings.round_to}, вверх: {settings.round_up}\n"
         f"Ограничение по ADMIN_IDS: {admin_mode}"
@@ -257,7 +264,10 @@ async def cmd_formula(message: Message):
         "public_rate = round_up(cny_cost + PUBLIC_MARKUP_RUB)\n\n"
         "USDT:\n"
         "buy_usdt = rapira_usdt_rub + USDT_BUY_OFFSET_RUB\n"
-        "sell_usdt = rapira_usdt_rub + USDT_SELL_OFFSET_RUB\n\n"
+        "sell_usdt = rapira_usdt_rub + USDT_SELL_OFFSET_RUB\n"
+        "site_usdt_cny = coinbase_usdt_cny + USDT_CNY_OFFSET\n\n"
+        "Малая ступень CNY:\n"
+        "rate_from_500 = ceil_to_0.10(rate_from_30000 + CHECK_MARKUP_RUB)\n\n"
         "Пример: Rapira 74.5 -> купить USDT 78.5, продать USDT 71.5."
     )
 

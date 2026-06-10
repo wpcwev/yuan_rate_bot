@@ -77,7 +77,8 @@ class Settings:
     request_timeout_seconds: int
 
     post_tiers: list[tuple[int, Decimal]]
-    check_rate_rub: Decimal
+    check_markup_rub: Decimal
+    check_round_to: Decimal
     min_exchange_cny: int
     trial_exchange_cny: int
     usdt_buy_rate_rub: Decimal | None
@@ -87,6 +88,10 @@ class Settings:
     usdt_cny_regular: Decimal | None
     usdt_cny_big: Decimal | None
     usdt_cny_big_from: int
+    usdt_cny_offset: Decimal
+    min_rub_to_usdt_rub: Decimal
+    min_usdt_to_rub: Decimal
+    min_usdt_to_cny: Decimal
     contact_username: str
     reviews_username: str
     chat_username: str
@@ -115,7 +120,8 @@ def load_settings() -> Settings:
         round_up=_bool_env("ROUND_UP", "true"),
         request_timeout_seconds=_int_env("REQUEST_TIMEOUT_SECONDS", "10"),
         post_tiers=_tiers_env("POST_TIERS", "1000:0.15;3000:0.10;10000:0.05;30000:0.00"),
-        check_rate_rub=_decimal_env("CHECK_RATE_RUB", "12.00"),
+        check_markup_rub=_decimal_env("CHECK_MARKUP_RUB", "0.40"),
+        check_round_to=_decimal_env("CHECK_ROUND_TO", "0.10"),
         min_exchange_cny=_int_env("MIN_EXCHANGE_CNY", "500"),
         trial_exchange_cny=_int_env("TRIAL_EXCHANGE_CNY", "100"),
         usdt_buy_rate_rub=_optional_decimal_env("USDT_BUY_RATE_RUB"),
@@ -125,6 +131,10 @@ def load_settings() -> Settings:
         usdt_cny_regular=_optional_decimal_env("USDT_CNY_REGULAR"),
         usdt_cny_big=_optional_decimal_env("USDT_CNY_BIG"),
         usdt_cny_big_from=_int_env("USDT_CNY_BIG_FROM", "10000"),
+        usdt_cny_offset=_decimal_env("USDT_CNY_OFFSET", "-0.08"),
+        min_rub_to_usdt_rub=_decimal_env("MIN_RUB_TO_USDT_RUB", "35000"),
+        min_usdt_to_rub=_decimal_env("MIN_USDT_TO_RUB", "500"),
+        min_usdt_to_cny=_decimal_env("MIN_USDT_TO_CNY", "500"),
         contact_username=os.getenv("CONTACT_USERNAME", "@exchange_kir").strip(),
         reviews_username=os.getenv("REVIEWS_USERNAME", "@otzivi_17teen").strip(),
         chat_username=os.getenv("CHAT_USERNAME", "@chat_17teen").strip(),
