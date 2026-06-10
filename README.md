@@ -52,6 +52,18 @@ public_rate = round_up(cny_cost + PUBLIC_MARKUP_RUB)
 Показывает курс по суммам по переданным значениям.
 
 ```text
+/site_preview
+```
+
+Показывает, какие данные будут записаны на сайт.
+
+```text
+/site_update
+```
+
+Обновляет `rates.json` сайта.
+
+```text
 /settings
 ```
 
@@ -112,6 +124,8 @@ CHECK_RATE_RUB=12.00
 USDT_CNY_REGULAR=6.61
 USDT_CNY_BIG=6.68
 CONTACT_USERNAME=@exchange_kir
+MAX_URL=https://max.ru/u/f9LHodD0cOIlGK214Iw7B-Xt7rBa_q85OmfEK61yQXs8e0apAqgArel29NI
+SITE_RATES_PATH=/var/www/17exchange/rates.json
 ```
 
 ## Запуск на Ubuntu через systemd

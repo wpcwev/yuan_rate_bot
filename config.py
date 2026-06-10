@@ -82,12 +82,16 @@ class Settings:
     trial_exchange_cny: int
     usdt_buy_rate_rub: Decimal | None
     usdt_sell_rate_rub: Decimal | None
+    usdt_buy_offset_rub: Decimal
+    usdt_sell_offset_rub: Decimal
     usdt_cny_regular: Decimal | None
     usdt_cny_big: Decimal | None
     usdt_cny_big_from: int
     contact_username: str
     reviews_username: str
     chat_username: str
+    max_url: str
+    site_rates_path: str
 
 
 def load_settings() -> Settings:
@@ -116,10 +120,17 @@ def load_settings() -> Settings:
         trial_exchange_cny=_int_env("TRIAL_EXCHANGE_CNY", "100"),
         usdt_buy_rate_rub=_optional_decimal_env("USDT_BUY_RATE_RUB"),
         usdt_sell_rate_rub=_optional_decimal_env("USDT_SELL_RATE_RUB"),
+        usdt_buy_offset_rub=_decimal_env("USDT_BUY_OFFSET_RUB", "4"),
+        usdt_sell_offset_rub=_decimal_env("USDT_SELL_OFFSET_RUB", "-3"),
         usdt_cny_regular=_optional_decimal_env("USDT_CNY_REGULAR"),
         usdt_cny_big=_optional_decimal_env("USDT_CNY_BIG"),
         usdt_cny_big_from=_int_env("USDT_CNY_BIG_FROM", "10000"),
         contact_username=os.getenv("CONTACT_USERNAME", "@exchange_kir").strip(),
         reviews_username=os.getenv("REVIEWS_USERNAME", "@otzivi_17teen").strip(),
         chat_username=os.getenv("CHAT_USERNAME", "@chat_17teen").strip(),
+        max_url=os.getenv(
+            "MAX_URL",
+            "https://max.ru/u/f9LHodD0cOIlGK214Iw7B-Xt7rBa_q85OmfEK61yQXs8e0apAqgArel29NI",
+        ).strip(),
+        site_rates_path=os.getenv("SITE_RATES_PATH", "/var/www/17exchange/rates.json").strip(),
     )
