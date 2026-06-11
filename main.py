@@ -7,7 +7,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message
 
-from config import Settings, load_settings
+from config import Settings, load_settings, save_runtime_order_offset
 from rate_service import RateService, RateSnapshot, fmt_money, fmt_rate, parse_decimal
 from site_export import build_site_preview, build_site_rates, get_usdt_rates, write_site_rates
 
@@ -31,13 +31,19 @@ async def guard(message: Message) -> bool:
     return False
 
 
+def rapira_adjustment_text() -> str:
+    if settings.rapira_order_offset_rub is not None:
+        return f"Ручной зазор к Rapira: +{fmt_money(settings.rapira_order_offset_rub)} RUB"
+    return f"Надбавка к Rapira для CNY: +{fmt_rate(settings.rapira_markup_percent, '0.01')}%"
+
+
 def build_rate_text(snapshot: RateSnapshot) -> str:
     usdt_buy, usdt_sell = get_usdt_rates(snapshot, settings)
     usdt_cny_site = snapshot.coinbase_cny + settings.usdt_cny_offset
     return (
         "Расчет курса RUB/CNY\n\n"
         f"Rapira {snapshot.rapira_symbol} ({snapshot.rapira_field}): {fmt_money(snapshot.rapira_raw)}\n"
-        f"Надбавка к Rapira для CNY: +{fmt_rate(settings.rapira_markup_percent, '0.01')}%\n"
+        f"{rapira_adjustment_text()}\n"
         f"Расчетный USDT/RUB для CNY: {fmt_money(snapshot.rapira_adjusted)}\n"
         f"Coinbase USDT/CNY: {fmt_rate(snapshot.coinbase_cny)}\n\n"
         f"Себестоимость 1 CNY: {fmt_money(snapshot.cny_cost_rub)} RUB\n"
@@ -64,6 +70,7 @@ def build_tiers_text(snapshot: RateSnapshot) -> str:
             f"Базовый курс с маржей: {fmt_money(snapshot.public_rate)} ₽/¥",
             "",
             f"Rapira USDT/RUB: {fmt_money(snapshot.rapira_raw)}",
+            rapira_adjustment_text(),
             f"Расчетный USDT/RUB для CNY: {fmt_money(snapshot.rapira_adjusted)}",
             f"USDT/CNY Coinbase: {fmt_rate(snapshot.coinbase_cny)}",
             f"USDT/CNY для калькулятора: {fmt_money(Decimal(str(payload['usdt']['cnyRate'])))}",
@@ -89,6 +96,7 @@ async def cmd_help(message: Message):
         "/rates_calc <rapira> <cny> - лесенка вручную\n"
         "/site_preview - показать данные для сайта\n"
         "/site_update - обновить rates.json на сайте\n"
+        "/order_offset [руб] - показать или задать ручной зазор к Rapira\n"
         "/settings - показать настройки\n"
         "/formula - показать формулу\n"
         "/myid - показать твой Telegram ID\n\n"
@@ -224,6 +232,43 @@ async def cmd_site_update(message: Message):
     await waiting.edit_text(f"Готово. Обновил файл:\n{target}")
 
 
+@router.message(Command("order_offset", "rapira_offset"))
+async def cmd_order_offset(message: Message, command: CommandObject):
+    if not await guard(message):
+        return
+
+    global settings, rate_service
+
+    if not command.args:
+        current = (
+            f"+{fmt_money(settings.rapira_order_offset_rub)} RUB"
+            if settings.rapira_order_offset_rub is not None
+            else "не задан, используется процентная надбавка"
+        )
+        await message.reply(
+            "Ручной зазор к Rapira:\n"
+            f"{current}\n\n"
+            "Чтобы задать: /order_offset 1\n"
+            "Это будет означать: расчетный USDT/RUB = Rapira + 1 RUB."
+        )
+        return
+
+    try:
+        value = parse_decimal(command.args)
+    except InvalidOperation:
+        await message.reply("Не смог прочитать число. Пример: /order_offset 1")
+        return
+
+    target = save_runtime_order_offset(settings, value)
+    settings = load_settings()
+    rate_service = RateService(settings)
+    await message.reply(
+        f"Готово. Ручной зазор к Rapira: +{fmt_money(value)} RUB\n"
+        f"Сохранил в {target}\n"
+        "Следующее автообновление сайта тоже возьмет это значение."
+    )
+
+
 @router.message(Command("settings"))
 async def cmd_settings(message: Message):
     if not await guard(message):
@@ -236,7 +281,7 @@ async def cmd_settings(message: Message):
         f"Rapira symbol: {settings.rapira_symbol}\n"
         f"Rapira field: {settings.rapira_price_field}\n"
         f"Coinbase base/quote: {settings.coinbase_base_currency}/{settings.coinbase_quote_currency}\n"
-        f"Надбавка к Rapira для CNY: +{fmt_rate(settings.rapira_markup_percent, '0.01')}%\n"
+        f"{rapira_adjustment_text()}\n"
         f"Доп. маржа CNY: +{fmt_money(settings.public_markup_rub)} RUB/CNY\n"
         f"Ступени: {settings.post_tiers}\n"
         f"Малая ступень CNY: лучший тариф +{fmt_money(settings.check_markup_rub)}, округление {settings.check_round_to}\n"
@@ -246,6 +291,7 @@ async def cmd_settings(message: Message):
         f"USDT->RUB {fmt_money(settings.min_usdt_to_rub, '0.01')} USDT, "
         f"USDT->CNY {fmt_money(settings.min_usdt_to_cny, '0.01')} USDT\n"
         f"Site rates path: {settings.site_rates_path}\n"
+        f"Runtime settings path: {settings.runtime_settings_path}\n"
         f"Округление: {settings.round_to}, вверх: {settings.round_up}\n"
         f"Ограничение по ADMIN_IDS: {admin_mode}"
     )
@@ -259,6 +305,9 @@ async def cmd_formula(message: Message):
     await message.reply(
         "Формулы:\n\n"
         "CNY:\n"
+        "если задан RAPIRA_ORDER_OFFSET_RUB или /order_offset:\n"
+        "adjusted_usdt_rub = rapira_usdt_rub + order_offset_rub\n"
+        "иначе:\n"
         "adjusted_usdt_rub = rapira_usdt_rub * (1 + RAPIRA_MARKUP_PERCENT / 100)\n"
         "cny_cost = adjusted_usdt_rub / coinbase_usdt_cny\n"
         "public_rate = round_up(cny_cost + PUBLIC_MARKUP_RUB)\n\n"

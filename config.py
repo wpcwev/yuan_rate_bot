@@ -1,7 +1,9 @@
+import json
 import os
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -46,6 +48,38 @@ def _optional_decimal_env(name: str) -> Decimal | None:
         raise ValueError(f"{name} must be a decimal number, got {raw!r}") from exc
 
 
+def _decimal_raw(name: str, raw: str) -> Decimal:
+    value = raw.strip().replace(",", ".")
+    try:
+        return Decimal(value)
+    except InvalidOperation as exc:
+        raise ValueError(f"{name} must be a decimal number, got {raw!r}") from exc
+
+
+def _runtime_path(raw_path: str) -> Path:
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path
+
+
+def _load_runtime_settings(raw_path: str) -> dict:
+    path = _runtime_path(raw_path)
+    if not path.exists():
+        return {}
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"Runtime settings file {path} must contain a JSON object.")
+    return data
+
+
+def _runtime_decimal(runtime: dict, key: str) -> Decimal | None:
+    raw = runtime.get(key)
+    if raw is None or str(raw).strip() == "":
+        return None
+    return _decimal_raw(key, str(raw))
+
+
 def _tiers_env(name: str, default: str) -> list[tuple[int, Decimal]]:
     raw = os.getenv(name, default).strip()
     tiers: list[tuple[int, Decimal]] = []
@@ -71,6 +105,7 @@ class Settings:
     coinbase_quote_currency: str
 
     rapira_markup_percent: Decimal
+    rapira_order_offset_rub: Decimal | None
     public_markup_rub: Decimal
     round_to: Decimal
     round_up: bool
@@ -97,6 +132,7 @@ class Settings:
     chat_username: str
     max_url: str
     site_rates_path: str
+    runtime_settings_path: str
 
 
 def load_settings() -> Settings:
@@ -104,6 +140,10 @@ def load_settings() -> Settings:
     token = token.strip()
     if not token or token == "123456:replace_me":
         raise RuntimeError("Set TELEGRAM_BOT_TOKEN in .env or environment variables.")
+
+    runtime_settings_path = os.getenv("RUNTIME_SETTINGS_PATH", "runtime_settings.json").strip()
+    runtime = _load_runtime_settings(runtime_settings_path)
+    runtime_order_offset = _runtime_decimal(runtime, "rapira_order_offset_rub")
 
     return Settings(
         telegram_bot_token=token,
@@ -115,6 +155,11 @@ def load_settings() -> Settings:
         coinbase_base_currency=os.getenv("COINBASE_BASE_CURRENCY", "USDT").strip().upper(),
         coinbase_quote_currency=os.getenv("COINBASE_QUOTE_CURRENCY", "CNY").strip().upper(),
         rapira_markup_percent=_decimal_env("RAPIRA_MARKUP_PERCENT", "2.9"),
+        rapira_order_offset_rub=(
+            runtime_order_offset
+            if runtime_order_offset is not None
+            else _optional_decimal_env("RAPIRA_ORDER_OFFSET_RUB")
+        ),
         public_markup_rub=_decimal_env("PUBLIC_MARKUP_RUB", "0.00"),
         round_to=_decimal_env("ROUND_TO", "0.01"),
         round_up=_bool_env("ROUND_UP", "true"),
@@ -143,4 +188,20 @@ def load_settings() -> Settings:
             "https://max.ru/u/f9LHodD0cOIlGK214Iw7B-Xt7rBa_q85OmfEK61yQXs8e0apAqgArel29NI",
         ).strip(),
         site_rates_path=os.getenv("SITE_RATES_PATH", "/var/www/17exchange/rates.json").strip(),
+        runtime_settings_path=str(_runtime_path(runtime_settings_path)),
     )
+
+
+def save_runtime_order_offset(settings: Settings, value: Decimal) -> Path:
+    path = _runtime_path(settings.runtime_settings_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {}
+    if path.exists():
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(loaded, dict):
+            data = loaded
+    data["rapira_order_offset_rub"] = str(value)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return path

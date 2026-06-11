@@ -37,7 +37,12 @@ class RateService:
         if coinbase_cny <= 0:
             raise ValueError("Coinbase USDT/CNY rate must be greater than zero.")
 
-        rapira_adjusted = rapira_raw * (Decimal("1") + self.settings.rapira_markup_percent / Decimal("100"))
+        if self.settings.rapira_order_offset_rub is not None:
+            rapira_adjusted = rapira_raw + self.settings.rapira_order_offset_rub
+        else:
+            rapira_adjusted = rapira_raw * (
+                Decimal("1") + self.settings.rapira_markup_percent / Decimal("100")
+            )
         cny_cost_rub = rapira_adjusted / coinbase_cny
         public_rate_raw = cny_cost_rub + self.settings.public_markup_rub
         public_rate = self._round_rate(public_rate_raw)

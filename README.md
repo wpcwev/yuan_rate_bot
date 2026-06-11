@@ -9,6 +9,8 @@ Telegram-бот для расчета курса RUB/CNY.
 ## Формула
 
 ```text
+adjusted_usdt_rub = rapira_usdt_rub + RAPIRA_ORDER_OFFSET_RUB
+# если ручной offset не задан:
 adjusted_usdt_rub = rapira_usdt_rub * (1 + RAPIRA_MARKUP_PERCENT / 100)
 cny_cost = adjusted_usdt_rub / coinbase_usdt_cny
 public_rate = round_up(cny_cost + PUBLIC_MARKUP_RUB)
@@ -20,6 +22,9 @@ site_usdt_cny = coinbase_usdt_cny + USDT_CNY_OFFSET
 
 - `rapira_usdt_rub` берется из Rapira API.
 - `RAPIRA_MARKUP_PERCENT=2.9` превращает пример `74.83` в `77.00`.
+- Если задан `RAPIRA_ORDER_OFFSET_RUB` или команда `/order_offset`, бот считает
+  `adjusted_usdt_rub = rapira_usdt_rub + offset`. Это нужно, когда реальные
+  ордера приходят не по процентной надбавке, а по фиксированному зазору.
 - `coinbase_usdt_cny` берется из Coinbase API.
 - `PUBLIC_MARKUP_RUB` - основная маржа для лучшего курса CNY.
 - `CHECK_MARKUP_RUB=0.40` добавляется к лучшему курсу для диапазона от 500¥.
@@ -67,6 +72,14 @@ site_usdt_cny = coinbase_usdt_cny + USDT_CNY_OFFSET
 ```
 
 Обновляет `rates.json` сайта.
+
+```text
+/order_offset 1
+```
+
+Сохраняет ручной зазор к Rapira. Пример: Rapira `75.20`, offset `1.00` значит,
+что расчетный курс для CNY будет `76.20`. Значение сохраняется в
+`runtime_settings.json`, поэтому его увидит и hourly-обновление сайта.
 
 ```text
 /settings
@@ -121,6 +134,8 @@ ADMIN_IDS=123456789,987654321
 
 ```text
 RAPIRA_MARKUP_PERCENT=2.9
+RAPIRA_ORDER_OFFSET_RUB=
+RUNTIME_SETTINGS_PATH=runtime_settings.json
 PUBLIC_MARKUP_RUB=0.20
 ROUND_TO=0.05
 ROUND_UP=true
